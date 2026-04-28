@@ -14,6 +14,9 @@
 - [4. Project Structure](#4-project-structure)
 - [5. Technical Implementation Steps](#5-technical-implementation-steps)
   - [5.1. Phase 1: Database Replication Setup](#51-phase-1-database-replication-setup)
+  - [5.2. Phase 2: API Development - Architecture & Environment Configuration](#52-phase-2-api-development---architecture--environment-configuration)
+  - [5.3. Phase 3: Infrastructure & Load Balancing](#53-phase-3-infrastructure--load-balancing)
+  - [5.4. Phase 4: Verification & Stress Test](#54-phase-4-verification--stress-test)
 
 ---
 
