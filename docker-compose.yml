@@ -1,15 +1,44 @@
 version: "3.8"
 
 services:
-  # --- API Node ---
-  api-service:
+  # --- Nginx Load Balancing ---
+  nginx-lb:
+    image: nginx:latest
+    container_name: scnode-load-balancer
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - api-service-01
+      - api-service-02
+    networks:
+      - scnode-network
+
+  # --- API Node 01 ---
+  api-service-01:
     build:
       context: ./server
       dockerfile: Dockerfile
     container_name: scnode-api-01
     env_file: ./server/.env
-    ports:
-      - "3000:3000"
+    environment:
+      - NODE_NAME=ScaleNode-API-01
+    depends_on:
+      - pg-master
+      - pg-slave
+    networks:
+      - scnode-network
+
+  # --- API Node 02 ---
+  api-service-02:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: scnode-api-02
+    env_file: ./server/.env
+    environment:
+      - NODE_NAME=ScaleNode-API-02
     depends_on:
       - pg-master
       - pg-slave

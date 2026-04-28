@@ -1,5 +1,8 @@
 <div align="center">
   <h1>ScaleNode Development Guide</h1>
+  <medium>
+    <strong>Author:</strong> Nguyễn Thành Tiến
+  </medium> <br />
   <sub>April, 2026</sub>
 </div>
 
@@ -295,3 +298,392 @@ Dùng danh sách này để chốt lại kết quả của **Phase 2**:
 | 🏗️ **Image Build**          | `api-service` build thành công từ `Dockerfile` qua Compose.             |    [x]     |
 | 🔗 **Connectivity**         | API kết nối DB qua `scnode-network` bằng tên `pg-master`/`pg-slave`.    |    [x]     |
 | 🧯 **Error Handling**       | Test 404/500 trả JSON thống nhất, server không crash.                   |    [x]     |
+
+---
+
+## 📝 5.3. Phase 3: Infrastructure & Load Balancing
+
+Mục tiêu của Phase 3 là hiện thực hóa khả năng **High Availability (Tính sẵn sàng cao)** bằng cách chạy song song nhiều thực thể API và điều phối chúng thông qua một **Load Balancer (Nginx)**.
+
+---
+
+### Step 1: Nhân bản API Nodes trong `docker-compose.yml`
+
+Để hệ thống có thể chia tải, ta cần ít nhất 2 thực thể API chạy độc lập. Ta sẽ tách `api-service` cũ thành 2 service riêng biệt với tên định danh khác nhau.
+
+Cập nhật `docker-compose.yml`:
+
+```yaml
+services:
+  # --- API Node A ---
+  api-service-01:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: scnode-api-01
+    env_file: ./server/.env
+    environment:
+      - NODE_NAME=ScaleNode-API-01
+    # Không cần port mapping ra ngoài vì đã có Nginx điều phối nội bộ
+    depends_on:
+      - pg-master
+      - pg-slave
+    networks:
+      - scnode-network
+
+  # --- API Node 02 ---
+  api-service-02:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: scnode-api-02
+    env_file: ./server/.env
+    environment:
+      - NODE_NAME=ScaleNode-API-02
+    # Không cần port mapping ra ngoài vì đã có Nginx điều phối nội bộ
+    depends_on:
+      - pg-master
+      - pg-slave
+    networks:
+      - scnode-network
+```
+
+**_Lưu ý_**: Ta sử dụng `environment` để ghi đè `NODE_NAME`. Điều này giúp chúng ta phân biệt được Request đang rơi vào Node nào khi kiểm thử.
+
+---
+
+### Step 2: Cấu hình Nginx Load Balancer
+
+Tạo file `nginx/nginx.conf` để định nghĩa cách Nginx chia tải cho các API Nodes.
+
+```nginx
+upstream scalenode_api {
+    # Thuật toán mặc định: Round Robin (Chia đều)
+    server api-service-01:3000 max_fails=3 fail_timeout=30s;
+    server api-service-02:3000 max_fails=3 fail_timeout=30s;
+}
+
+server {
+    listen 80;
+
+    location / {
+        proxy_pass http://scalenode_api;
+
+        proxy_connect_timeout 2s;
+        proxy_read_timeout 5s;
+        proxy_send_timeout 5s
+
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+}
+```
+
+- **Upstream**: Khai báo nhóm server API. Nginx sẽ tự động nhận diện IP của container qua Docker DNS.
+
+- **Passive Health Check**:
+  - `max_fails=3`: Nếu node lỗi 3 lần liên tiếp, Nginx sẽ tạm ngưng gửi request tới node đó.
+  - `fail_timeout=30s`: Thời gian tạm ngưng trước khi thử kết nối lại.
+
+---
+
+### Step 3: Tích hợp Nginx vào `docker-compose.yml`
+
+Thêm service Nginx vào file Compose để nó đóng vai trò là `Cổng vào duy nhất (Single Entry Point)` cho toàn bộ hệ thống.
+
+```yaml
+services:
+  # ... các service khác ...
+
+  nginx-lb:
+    image: nginx:latest
+    container_name: scnode-load-balancer
+    ports:
+      - "80:80" # Mở cổng 80 để tiếp nhận traffic từ người dùng
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - api-service-01
+      - api-service-02
+    networks:
+      - scnode-network
+```
+
+---
+
+### Step 4: Triển khai và Kiểm tra
+
+#### 1. Khởi động lại toàn bộ hệ thống:
+
+```bash
+docker-compose up -d --build
+```
+
+#### 2. Kiểm tra trạng thái:
+
+Dùng lệnh `docker ps` để đảm bảo các container: `scnode-load-balancer`, `scnode-api-01`, `scnode-api-02`, `scnode-db-master`, và `scnode-db-slave` đều đang chạy.
+
+---
+
+### ✅ Phase 3 Verification Checklist
+
+Dùng danh sách này để nghiệm thu và kiểm chứng khả năng **Scalability** (Mở rộng) cũng như **Fault Tolerance** (Chịu lỗi) của hệ thống sau khi đã cấu hình Nginx.
+
+---
+
+### 🔹 Bảng Kiểm thử Hệ thống Scalable
+
+| Hạng mục                    | Chỉ số kiểm tra (Expectation)                                                                                                             | Trạng thái |
+| :-------------------------- | :---------------------------------------------------------------------------------------------------------------------------------------- | :--------: |
+| ⚖️ **Load Balancing**       | Gọi API `GET` liên tục qua cổng 80. Giá trị `processed_by` phải **luân phiên** thay đổi giữa `ScaleNode-API-01` và `ScaleNode-API-02`.    |    [x]     |
+| 🌐 **Single Entry Point**   | Hệ thống chỉ tiếp nhận yêu cầu qua **Port 80** (Nginx). Việc truy cập trực tiếp Port 3000 từ bên ngoài phải bị chặn.                      |    [x]     |
+| 🛡️ **Fault Tolerance**      | Khi chạy lệnh `docker stop scnode-api-node-a`, các request tiếp theo vẫn phải **thành công** nhờ Node B gánh tải.                         |    [x]     |
+| 🩺 **Passive Health Check** | Nginx tự động phát hiện Node sập và **ngừng chuyển traffic** vào node đó, không gây ra lỗi 502 cho người dùng.                            |    [x]     |
+| 🔄 **Auto-Recovery**        | Sau khi `docker start` lại node bị sập, Nginx phải tự động đưa node đó **quay trở lại** danh sách điều phối sau thời gian `fail_timeout`. |    [x]     |
+| 🆔 **Identity Mapping**     | Mỗi Node API phải hiển thị đúng **NODE_NAME** được cấu hình trong mục `environment` của Docker Compose.                                   |    [x]     |
+
+---
+
+## 📝 5.4. Phase 4: Verification & Stress Test
+
+Phase cuối cùng tập trung vào việc kiểm chứng toàn bộ luồng hoạt động của hệ thống, từ **Load Balancing** (Nginx), **Validation** (Middleware), đến **Read/Write Splitting** và **Replication** (Database).
+
+---
+
+### Step 1: Kiểm thử Load Balancing & Validation
+
+Thực hiện gửi chuỗi các request liên tục để quan sát sự điều phối của **Nginx** và khả năng xử lý của các **API Nodes**.
+
+#### 1. Gửi Request POST thành công (Kiểm tra Write + Node 1)
+
+- **Request**: `POST http://localhost:80/api/products`
+- **Body**: `{"name": "Sony PS5", "price": 500}`
+- **Response**:
+  ```json
+  {
+    "success": true,
+    "message": "Product created",
+    "data": {
+      "id": 3,
+      "name": "Sony PS5",
+      "price": 500,
+      "created_at": "2026-04-28T17:10:39.035Z"
+    },
+    "meta": {
+      "processed_by": "ScaleNode-API-01",
+      "db_source": "Master",
+      "timestamp": "2026-04-28T17:10:39.133Z"
+    }
+  }
+  ```
+- **Nhấn mạnh**: Request được **API Node 01** tiếp nhận và thực hiện ghi vào **Master Database**.
+
+#### 2. Gửi Request POST thất bại (Kiểm tra Validation + Node 2)
+
+- **Request**: `POST http://localhost:80/api/products`
+- **Body**: `{"price": 500}` (Thiếu trường **name**)
+- **Response**:
+  ```json
+  {
+    "success": false,
+    "message": "Validation failed",
+    "errors": ["Name must be a non-empty string."],
+    "meta": {
+      "processed_by": "ScaleNode-API-02",
+      "db_source": "N/A",
+      "timestamp": "2026-04-28T17:12:20.452Z"
+    }
+  }
+  ```
+- **Nhấn mạnh**: **Nginx** đã luân chuyển request này sang **API Node 02**. Middleware tại đây chặn dữ liệu lỗi và trả về phản hồi ngay lập tức.
+
+#### 3. Gửi Request GET lần 1 (Kiểm tra Read + Node 1)
+
+- **Request**: `GET http://localhost:80/api/products`
+- **Response Meta**:
+  ```json
+  {
+    "success": true,
+    "message": "Products fetched",
+    "data": [
+      {
+        "id": 3,
+        "name": "Sony PS5",
+        "price": 500,
+        "created_at": "2026-04-28T17:10:39.035Z"
+      },
+      {
+        "id": 2,
+        "name": "Lenovo ThinkPad",
+        "price": 1000,
+        "created_at": "2026-04-28T09:50:10.816Z"
+      },
+      {
+        "id": 1,
+        "name": "Macbook Pro",
+        "price": 2500,
+        "created_at": "2026-04-28T09:48:21.428Z"
+      }
+    ],
+    "meta": {
+      "processed_by": "ScaleNode-API-01",
+      "db_source": "Slave",
+      "timestamp": "2026-04-28T17:14:50.515Z"
+    }
+  }
+  ```
+- **Nhấn mạnh**: Request đọc dữ liệu được thực hiện trên **Slave Database** thông qua **API Node 01**.
+
+#### 4. Gửi Request GET lần 2 (Kiểm tra Read + Node 2)
+
+- **Request**: `GET http://localhost:80/api/products`
+- **Response Meta**:
+  ```json
+  {
+    "success": true,
+    "message": "Products fetched",
+    "data": [
+      {
+        "id": 3,
+        "name": "Sony PS5",
+        "price": 500,
+        "created_at": "2026-04-28T17:10:39.035Z"
+      },
+      {
+        "id": 2,
+        "name": "Lenovo ThinkPad",
+        "price": 1000,
+        "created_at": "2026-04-28T09:50:10.816Z"
+      },
+      {
+        "id": 1,
+        "name": "Macbook Pro",
+        "price": 2500,
+        "created_at": "2026-04-28T09:48:21.428Z"
+      }
+    ],
+    "meta": {
+      "processed_by": "ScaleNode-API-02",
+      "db_source": "Slave",
+      "timestamp": "2026-04-28T17:15:50.909Z"
+    }
+  }
+  ```
+- **Nhấn mạnh**: Dữ liệu vẫn được lấy từ **Slave Database** nhưng do **API Node 02** xử lý luân phiên.
+
+---
+
+### Step 2: Kiểm tra tính nhất quán dữ liệu (Data Visibility)
+
+Xác minh cơ chế **Streaming Replication** đảm bảo dữ liệu ghi vào Master được hiển thị chính xác khi truy vấn qua Slave.
+
+1.  **Thao tác**: Gửi `POST` thêm 1 sản phẩm mới (ví dụ: "iPhone 15").
+
+- **Request**: `POST http://localhost:80/api/products`
+- **Body**: `{"name": "IPhone 15", "price": 1000}`
+- **Response Meta**:
+
+  ```json
+  {
+    "success": true,
+    "message": "Product created",
+    "data": {
+      "id": 4,
+      "name": "IPhone 15",
+      "price": 1000,
+      "created_at": "2026-04-28T17:18:59.249Z"
+    },
+    "meta": {
+      "processed_by": "ScaleNode-API-01",
+      "db_source": "Master",
+      "timestamp": "2026-04-28T17:18:59.310Z"
+    }
+  }
+  ```
+
+2.  **Hành động của hệ thống**:
+    - **API Node** nhận lệnh và ghi vào **Master Database**.
+    - **PostgreSQL Master** ngay lập tức đồng bộ bản ghi này xuống **PostgreSQL Slave**.
+3.  **Kiểm chứng**:
+    - Gửi lệnh `GET /api/products`.
+    - Hệ thống gọi vào **Slave Database**.
+    - **Kết quả**: Sản phẩm "iPhone 15" xuất hiện ngay trong danh sách trả về từ Slave.
+
+- **Request**: `GET http://localhost:80/api/products`
+- **Response Meta**:
+  ```json
+  {
+    "success": true,
+    "message": "Products fetched",
+    "data": [
+      {
+        "id": 4,
+        "name": "IPhone 15",
+        "price": 1000,
+        "created_at": "2026-04-28T17:18:59.249Z"
+      },
+      {
+        "id": 3,
+        "name": "Sony PS5",
+        "price": 500,
+        "created_at": "2026-04-28T17:10:39.035Z"
+      },
+      {
+        "id": 2,
+        "name": "Lenovo ThinkPad",
+        "price": 1000,
+        "created_at": "2026-04-28T09:50:10.816Z"
+      },
+      {
+        "id": 1,
+        "name": "Macbook Pro",
+        "price": 2500,
+        "created_at": "2026-04-28T09:48:21.428Z"
+      }
+    ],
+    "meta": {
+      "processed_by": "ScaleNode-API-02",
+      "db_source": "Slave",
+      "timestamp": "2026-04-28T17:19:46.824Z"
+    }
+  }
+  ```
+
+4.  **Kết luận**: Cơ chế nhân bản dữ liệu hoạt động ổn định với độ trễ gần như bằng không (**Near Zero-lag**).
+
+---
+
+### Step 3: The "Chaos" Test (Kiểm tra tính chịu lỗi)
+
+Mục tiêu của bài test này là chứng minh khả năng **High Availability** (Tính sẵn sàng cao) của hệ thống bằng cách giả lập sự cố sập node đột ngột.
+
+#### 1. Thực hiện kịch bản phá hủy
+
+- **Hành động**: Chủ động đánh sập một instance API bằng lệnh:
+  `docker stop scnode-api-01`
+- **Kiểm tra**: Gửi liên tiếp các yêu cầu `GET` và `POST` tới địa chỉ `http://localhost/api/products`.
+
+#### 2. Kết quả quan sát thực tế
+
+- **Độ trễ ban đầu**: Request đầu tiên sau khi sập node có thể bị chậm (vài giây) do Nginx đang thực hiện **Timeout** và **Failover**.
+- **Khả năng duy trì**: Toàn bộ các yêu cầu sau đó đều trả về **Success: true**.
+- **Định danh xử lý**: Trong phần `meta`, giá trị `processed_by` luôn là **ScaleNode-API-02**.
+
+#### 3. Ý nghĩa kỹ thuật
+
+- **Chống sập (Fault Tolerance)**: Hệ thống không bị "chết" hoàn toàn khi có một thành phần bị lỗi.
+- **Tự động điều hướng**: **Nginx** đóng vai trò thông minh khi tự động loại bỏ node lỗi ra khỏi vòng điều phối mà không cần can thiệp thủ công.
+- **Khả năng hồi phục**: Khi khởi động lại node bằng lệnh `docker start`, hệ thống sẽ tự động nhận lại node và chia tải như bình thường sau khi hết thời gian **fail_timeout**.
+
+---
+
+### ✅ Phase 4 Verification Checklist
+
+| Hạng mục              | Chỉ số kiểm tra (Expectation)                                    | Trạng thái |
+| :-------------------- | :--------------------------------------------------------------- | :--------: |
+| **LB Toggling**       | Server ID thay đổi liên tục giữa Node 1 và Node 2 qua cổng 80.   |    [x]     |
+| **Input Guard**       | Middleware Validation bắt đúng lỗi thiếu trường dữ liệu.         |    [x]     |
+| **Correct Splitting** | Log hệ thống xác nhận POST/PUT vào Master và GET vào Slave.      |    [x]     |
+| **Data Consistency**  | Dữ liệu tạo mới hiển thị đầy đủ khi truy vấn qua cổng Slave.     |    [x]     |
+| **System Stability**  | Hệ thống không bị treo hoặc crash khi gửi nhiều request dồn dập. |    [x]     |
