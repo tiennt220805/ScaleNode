@@ -1,0 +1,10 @@
+const TABLE_NAME = "products";
+
+const CREATE_TABLE_SQL = `CREATE TABLE IF NOT EXISTS ${TABLE_NAME} (
+  id SERIAL PRIMARY KEY,
+  name TEXT NOT NULL,
+  price INTEGER NOT NULL CHECK (price > 0),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);`;
+
+module.exports = {TABLE_NAME, CREATE_TABLE_SQL};
