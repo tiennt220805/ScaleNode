@@ -25,8 +25,10 @@ services:
     environment:
       - NODE_NAME=ScaleNode-API-01
     depends_on:
-      - pg-master
-      - pg-slave
+      pg-master:
+        condition: service_healthy
+      pg-slave:
+        condition: service_healthy
     networks:
       - scnode-network
 
@@ -40,8 +42,10 @@ services:
     environment:
       - NODE_NAME=ScaleNode-API-02
     depends_on:
-      - pg-master
-      - pg-slave
+      pg-master:
+        condition: service_healthy
+      pg-slave:
+        condition: service_healthy
     networks:
       - scnode-network
 
@@ -61,6 +65,15 @@ services:
     volumes:
       - ./pg_master_data:/bitnami/postgresql
       - ./scripts/db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U $$POSTGRESQL_USERNAME -d $$POSTGRESQL_DATABASE",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
     networks:
       - scnode-network
 
@@ -77,10 +90,20 @@ services:
       - POSTGRESQL_REPLICATION_USER=repl_user
       - POSTGRESQL_REPLICATION_PASSWORD=repl_password
       - POSTGRESQL_PASSWORD=mypassword
+      - POSTGRESQL_DATABASE=scnode_db
     ports:
       - "5433:5432"
     volumes:
       - ./pg_slave_data:/bitnami/postgresql
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U $$POSTGRESQL_USERNAME -d $$POSTGRESQL_DATABASE",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
     networks:
       - scnode-network
 
