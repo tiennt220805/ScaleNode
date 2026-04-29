@@ -98,4 +98,4 @@ Khi cần xóa bỏ toàn bộ Container, dữ liệu Database và thư mục no
 ## 6. Learn More
 
 - Để tìm hiểu chi tiết hơn về các bước thiết lập, cấu hình **Replication** hoặc cách thực hiện **Stress Test**, vui lòng tham khảo tài liệu hướng dẫn: [Development Guide](./docs/development_guide.md).
-- Để tìm hiểu về các bước để test đồ án, vui lòng tham khảo tài liệu hướng dẫn: [Test Plan]().
+- Để tìm hiểu về các bước để test đồ án, vui lòng tham khảo tài liệu hướng dẫn: [Test Plan](./docs/test_plan.md).
