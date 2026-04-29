@@ -87,8 +87,11 @@ services:
       - POSTGRESQL_REPLICATION_MODE=slave
       - POSTGRESQL_MASTER_HOST=pg-master
       - POSTGRESQL_MASTER_PORT_NUMBER=5432
+      - POSTGRESQL_MASTER_CONNECTION_DELAY=20
+      - POSTGRESQL_MASTER_CONNECTION_RETRY=10
       - POSTGRESQL_REPLICATION_USER=repl_user
       - POSTGRESQL_REPLICATION_PASSWORD=repl_password
+      - POSTGRESQL_USERNAME=myuser
       - POSTGRESQL_PASSWORD=mypassword
       - POSTGRESQL_DATABASE=scnode_db
     ports:
@@ -103,7 +106,7 @@ services:
         ]
       interval: 10s
       timeout: 5s
-      retries: 10
+      retries: 15
     networks:
       - scnode-network
 
