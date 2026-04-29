@@ -99,8 +99,11 @@ pg-slave:
     - POSTGRESQL_REPLICATION_MODE=slave
     - POSTGRESQL_MASTER_HOST=pg-master
     - POSTGRESQL_MASTER_PORT_NUMBER=5432
+    - POSTGRESQL_MASTER_CONNECTION_DELAY=20
+    - POSTGRESQL_MASTER_CONNECTION_RETRY=10
     - POSTGRESQL_REPLICATION_USER=repl_user
     - POSTGRESQL_REPLICATION_PASSWORD=repl_password
+    - POSTGRESQL_USERNAME=myuser
     - POSTGRESQL_PASSWORD=mypassword
     - POSTGRESQL_DATABASE=scnode_db
   healthcheck:
@@ -111,7 +114,7 @@ pg-slave:
       ]
     interval: 10s
     timeout: 5s
-    retries: 10
+    retries: 15
 ```
 
 **Key Parameters**
@@ -123,6 +126,8 @@ pg-slave:
 | **POSTGRESQL_USERNAME/PASSWORD**         | User chính của DB                      | Dùng cho application query dữ liệu                          |
 | **POSTGRESQL_DATABASE**                  | Tên database khởi tạo                  | Đảm bảo DB sẵn sàng khi container chạy                      |
 | **POSTGRESQL_MASTER_HOST/PORT**          | Địa chỉ master cho slave               | Cho phép slave biết điểm đồng bộ                            |
+| **POSTGRESQL_MASTER_CONNECTION_DELAY**   | Thời gian chờ giữa các lần kết nối     | Tránh retry dồn dập khi master chưa sẵn sàng                |
+| **POSTGRESQL_MASTER_CONNECTION_RETRY**   | Số lần thử kết nối tới master          | Tăng khả năng slave bắt kịp khi master khởi động chậm       |
 | **ports**                                | Map cổng ra host                       | Truy cập test từ máy local, không dùng trong network nội bộ |
 | **volumes**                              | Lưu trữ dữ liệu                        | Bảo toàn dữ liệu khi container restart                      |
 
